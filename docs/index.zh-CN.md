@@ -18,4 +18,28 @@ features:
 footer: Open-source MIT Licensed | Copyright © 2020<br />Powered by [dumi](https://d.umijs.org)
 ---
 
-## Hello dumi!
+## CICD
+
+### 笔记
+
+- Why
+- How
+- What
+
+- Docer 使用
+
+配置镜像加速器
+针对 Docker 客户端版本大于 1.10.0 的用户
+
+您可以通过修改 daemon 配置文件/etc/docker/daemon.json 来使用加速器
+
+```shell
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<-'EOF'
+{
+  "registry-mirrors": ["https://vhuo92qh.mirror.aliyuncs.com"]
+}
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```

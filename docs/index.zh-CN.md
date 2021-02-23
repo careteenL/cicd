@@ -46,15 +46,120 @@ sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
 
+#### Docker in Docker
+
+Docker 采用的是 C/S（即 Client/Server）架构。我们在执行 `docker xxx`  等命令时，**其实是使用 `Client`  在和`docker engine`  在进行通信。**
+
+我们在安装 Docker CE 时，会生成一个 `systemd service`  服务。这个服务启动时，就是 `Docker Engine`  服务。默认情况下，Docker 守护进程会生成一个 socket（`/var/run/docker.sock`）文件来进行本地进程通信，因此只能在本地使用 docker 客户端或者使用 Docker API 进行操作。
+
+> \*.sock 文件：sock 文件是 UNIX 域套接字，它可以通过文件系统（而非网络地址）进行寻址和访问。
+
+因此，只要把**宿主机的 Docker 套接字通过 Docker 数据卷挂载到容器内部**，就能实现在容器内使用 Docker 命令（如下图）。![cicd_231](https://images.gitee.com/uploads/images/2020/0725/103000_c028c6dd_1720749.png)
+
+要实现在 Jenkins 内部访问宿主机 docker，要写一个 DockerFile 进行二次镜像构建。<br />此 DockerFile 的作用，就是为了安装容器使用宿主机 `Docker`  缺少的依赖。这里我们在容器内安装 `libltdl7` 。
+
+1. **新建配置文件**
+
+```shell
+vi Dockerfile
+```
+
+```dockerfile
+FROM jenkins/jenkins
+USER root
+# 清除了基础镜像设置的源，切换成阿里云源
+RUN echo '' > /etc/apt/sources.list.d/jessie-backports.list \
+  && echo "deb http://mirrors.aliyun.com/debian jessie main contrib non-free" > /etc/apt/sources.list \
+  && echo "deb http://mirrors.aliyun.com/debian jessie-updates main contrib non-free" >> /etc/apt/sources.list \
+  && echo "deb http://mirrors.aliyun.com/debian-security jessie/updates main contrib non-free" >> /etc/apt/sources.list
+# 更新源并安装缺少的包
+RUN apt-get update && apt-get install -y libltdl7
+ARG dockerGid=999
+
+RUN echo "docker:x:${dockerGid}:jenkins" >> /etc/group
+```
+
+2. 然后**构建镜像**
+
+```shell
+docker build -t local/jenkins .
+```
+
+3. 然后**启动镜像**
+
+我们将 Jenkins 用户目录外挂到宿主机内，先新建一个 `/home/jenkins`  目录，并设置权限：
+
+```shell
+mkdir /home/jenkins
+chown -R 1000 /home/jenkins/
+```
+
+接下来我们用镜像创建容器并启动：
+
+```shell
+docker run -itd --name jenkins -p 8080:8080 -p 50000:50000 \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-v /usr/bin/docker:/usr/bin/docker \
+-v /home/jenkins:/var/jenkins_home \
+--restart always \
+--user root local/jenkins
+```
+
+如果报错`docker: Error response from daemon: Conflict. The container name "/jenkins" is already in use by container`则表示 docker 重复了，可先删除在启动
+
+```shell
+docker rm dockerid
+```
+
+如果报错`docker: Error response from daemon: driver failed programming external connectivity on endpoint jenkins`则表示端口被占用，需换个端口，比如将`8080`换成`8090`
+
+4. 然后**查看运行情况**
+
+```shell
+docker ps
+```
+
+如果期望的容器没有在列表内，多半是启动失败。可以加`-a`参数查看运行状态，再使用`docker logs -f dockerid`查看容器内日志输出。（当然也可以先试试重启下 docker
+
+```shell
+systemctl restart docker
+```
+
+5. 要想在外网访问安装的 jenkins，需**设置防火墙**
+
+```shell
+firewall-cmd --zone=public --add-port=8080/tcp --permanent
+firewall-cmd --zone=public --add-port=50000/tcp --permanent
+systemctl restart firewalld
+```
+
+6. 打开`ip:8080`**正常访问**jenkins
+
+因为`jenkins`安装在 docker 容器内，若想进入容器内操作，可使用如下命令
+
+```shell
+docker exec -it jenkins /bin/bash
+# -i 即使没有附加也保持stdin打开
+# -t 分配一个伪终端
+```
+
+7. **替换镜像源**为清华大学的 Jenkins 插件源
+
+```shell
+find / -name 'default.json'
+sed -i 's/http:\/\/updates.jenkins-ci.org\/download/https:\/\/mirrors.tuna.tsinghua.edu.cn\/jenkins/g' /var/jenkins_home/updates/default.json && sed -i 's/http:\/\/www.google.com/https:\/\/www.baidu.com/g' /var/jenkins_home/updates/default.json
+exit;
+```
+
 ### Jenkins
 
 #### Jenkins 安装 nodejs 卡死
 
 解决方法
 
-- 下载[node-v15.9.0-linux-x64.tar.gz](https://nodejs.org/dist/v15.9.0/node-v15.9.0-linux-x64.tar.gz)到本地，
+1. 下载[node-v15.9.0-linux-x64.tar.gz](https://nodejs.org/dist/v15.9.0/node-v15.9.0-linux-x64.tar.gz)到本地，
 
-- 然后上传到服务器
+2. 然后上传到服务器
 
 ```shell
 # 服务器下操作 保证目录存在
@@ -67,6 +172,6 @@ tar zxvf node-v15.9.0-linux-x64.tar.gz
 rm -rf node-v15.9.0-linux-x64.tar.gz
 ```
 
-- 然后前往 jenkins 的全局工具配置修改 nodejs 安装目录为`/var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS/node-v15.9.0-linux-x64`
+3. 然后前往 jenkins 的全局工具配置修改 nodejs 安装目录为`/var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS/node-v15.9.0-linux-x64`
 
-- 最后重新构建即可
+4. 最后重新构建即可

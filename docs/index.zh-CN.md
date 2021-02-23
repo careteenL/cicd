@@ -26,7 +26,9 @@ footer: Open-source MIT Licensed | Copyright © 2020<br />Powered by [dumi](http
 - How
 - What
 
-- Docer 使用
+### Docer 使用
+
+#### 加速 Docker
 
 配置镜像加速器
 针对 Docker 客户端版本大于 1.10.0 的用户
@@ -43,3 +45,28 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
+
+### Jenkins
+
+#### Jenkins 安装 nodejs 卡死
+
+解决方法
+
+- 下载[node-v15.9.0-linux-x64.tar.gz](https://nodejs.org/dist/v15.9.0/node-v15.9.0-linux-x64.tar.gz)到本地，
+
+- 然后上传到服务器
+
+```shell
+# 服务器下操作 保证目录存在
+mkdir -p /var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS
+# 本地电脑操作 进行拷贝
+sudo scp /Users/apple/Desktop/node-v15.9.0-linux-x64.tar.gz root@serverIp:/var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS
+# 解压nodejs
+cd /var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS
+tar zxvf node-v15.9.0-linux-x64.tar.gz
+rm -rf node-v15.9.0-linux-x64.tar.gz
+```
+
+- 然后前往 jenkins 的全局工具配置修改 nodejs 安装目录为`/var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS/node-v15.9.0-linux-x64`
+
+- 最后重新构建即可

@@ -28,7 +28,17 @@ footer: Open-source MIT Licensed | Copyright © 2020<br />Powered by [dumi](http
 
 ### Docer 使用
 
-#### 加速 Docker
+#### 为什么要使用 Docker 安装 gitlab、jenkins、nginx？
+
+因为原生安装上述东西，需要安装依赖以及编译。比如安装 jenkins 还需要安装 java 环境。
+
+而使用 docker 比直接编译安装更适合服务编排和组织，并且可以做镜像备份和传输。
+
+### CICD 为什么需要多台机器？
+
+因为实际生产不可能构建机和服务在同一台。
+
+#### 如何加速 Docker？
 
 配置镜像加速器
 针对 Docker 客户端版本大于 1.10.0 的用户
@@ -46,7 +56,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
 
-#### Docker in Docker
+#### 什么是 Docker in Docker？
 
 Docker 采用的是 C/S（即 Client/Server）架构。我们在执行 `docker xxx`  等命令时，**其实是使用 `Client`  在和`docker engine`  在进行通信。**
 
@@ -153,7 +163,7 @@ exit;
 
 ### Jenkins
 
-#### Jenkins 安装 nodejs 卡死
+#### Jenkins 安装 nodejs 卡死，怎么解决？
 
 解决方法
 
@@ -175,3 +185,80 @@ rm -rf node-v15.9.0-linux-x64.tar.gz
 3. 然后前往 jenkins 的全局工具配置修改 nodejs 安装目录为`/var/jenkins_home/tools/jenkins.plugins.nodejs.tools.NodeJSInstallation/NODE_JS/node-v15.9.0-linux-x64`
 
 4. 最后重新构建即可
+
+### Gitlab
+
+#### 如何安装 Gitlab？
+
+1. 拉取 Gitlab 镜像
+
+```shell
+docker pull gitlab/gitlab-ce
+```
+
+2. 创建 Gitlab 容器
+
+```shell
+mkdir /home/gitlab #创建Gitlab工作目录
+
+docker run -itd -p 443:443 \
+-p 8899:8899 \
+-p 333:333 \
+--name gitlab \
+--restart always \
+-v /home/gitlab/config:/etc/gitlab \
+-v /home/gitlab/logs:/var/log/gitlab \
+-v /home/gitlab/data:/var/opt/gitlab \
+gitlab/gitlab-ce
+```
+
+3. 防火墙放行端口
+
+```shell
+firewall-cmd --zone=public --add-port=333/tcp --permanent
+firewall-cmd --zone=public --add-port=8899/tcp --permanent
+systemctl reload firewalld
+```
+
+4. 修改 Gitlab 配置文件
+
+```shell
+vi /home/gitlab/config/gitlab.rb
+# 新增三条配置
+external_url 'http://外部访问域名/地址:端口'
+gitlab_rails['gitlab_ssh_host'] = 'SSH外部访问域名/地址'
+gitlab_rails['gitlab_shell_ssh_port'] = SSH端口
+```
+
+5. 修改容器内 SSH 端口为 333
+
+```shell
+# 进入容器
+docker exec -it gitlab /bin/bash
+# 将顶部的22端口改为333
+vim /assets/sshd_config
+vim /etc/ssh/sshd_config
+```
+
+6. 重启 Gitlab
+
+```shell
+docker restart gitlab
+```
+
+7. 浏览器打开访问 http://ip或域名:8899
+
+打开后秒 502 卡死？怎么解决？
+
+8080 端口被占用，解决如下
+
+```shell
+# 前往配置文件进行修改
+vim /home/gitlab/config/gitlab.rb
+# 放开下面几个注释
+# unicorn['port'] = 8088 # 为8080时改为8088
+# postgresql['shared_buffers'] = "256MB"
+# postgresql['max_connections'] = 200
+```
+
+因为服务器配置过低，耐心等候一段时间。

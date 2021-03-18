@@ -38,6 +38,21 @@ footer: Open-source MIT Licensed | Copyright © 2020<br />Powered by [dumi](http
 
 因为实际生产不可能构建机和服务在同一台。
 
+#### 安装 Docker
+
+```shell
+# 安装依赖
+yum install -y yum-utils device-mapper-persistent-data lvm2
+# 使用阿里云源安装Docker
+sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo
+yum install docker-ce
+# 启动Docker
+systemctl start docker
+systemctl enable docker
+# 验证是否安装成功
+docker -v
+```
+
 #### 如何加速 Docker？
 
 配置镜像加速器
@@ -55,6 +70,12 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
+
+#### Docker容器无法ping通宿主机ip
+
+[Docker容器无法ping通宿主机ip问题解决记录](https://www.cnblogs.com/surging-dandelion/p/14381349.html)
+
+原因可能是`docker 加载内核的bridge.ko 驱动异常，导致docker0 网卡无法转发数据包，也就是系统内核的网桥模块bridge.ko 加载失败导致`需要`升级操作系统内核，重新安装docker`
 
 #### 什么是 Docker in Docker？
 
@@ -92,6 +113,33 @@ RUN echo "docker:x:${dockerGid}:jenkins" >> /etc/group
 2. 然后**构建镜像**
 
 ```shell
+docker build -t local/jenkins .
+```
+
+如果报错`Temporary failure resolving 'mirrors.aliyun.com'`则
+```shell
+修改网卡配置文件
+vim /etc/resolv.conf
+# 加入下面
+nameserver 114.114.114.114
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+# 重启网卡
+/etc/init.d/network restart
+# 再次构建
+docker build -t local/jenkins .
+```
+
+如果再报错`[Warning] IPv4 forwarding is disabled. Networking will not work`则
+```shell
+vim /etc/sysctl.conf
+# 添加这段代码
+net.ipv4.ip_forward = 1
+# 重启network服务
+systemctl restart network && systemctl restart docker
+# 查看是否修改成功 （备注：返回1，就是成功）
+sysctl net.ipv4.ip_forward
+# 再次构建
 docker build -t local/jenkins .
 ```
 
@@ -225,9 +273,10 @@ systemctl reload firewalld
 ```shell
 vi /home/gitlab/config/gitlab.rb
 # 新增三条配置
-external_url 'http://外部访问域名/地址:端口'
-gitlab_rails['gitlab_ssh_host'] = 'SSH外部访问域名/地址'
-gitlab_rails['gitlab_shell_ssh_port'] = SSH端口
+external_url 'http://外部访问域名/地址' # 实测不需要加端口！！！
+# 下面两项走默认即可
+# gitlab_rails['gitlab_ssh_host'] = 'SSH外部访问域名/地址'
+# gitlab_rails['gitlab_shell_ssh_port'] = SSH端口
 ```
 
 5. 修改容器内 SSH 端口为 333

@@ -71,9 +71,9 @@ sudo systemctl daemon-reload
 sudo systemctl restart docker
 ```
 
-#### Docker容器无法ping通宿主机ip
+#### Docker 容器无法 ping 通宿主机 ip
 
-[Docker容器无法ping通宿主机ip问题解决记录](https://www.cnblogs.com/surging-dandelion/p/14381349.html)
+[Docker 容器无法 ping 通宿主机 ip 问题解决记录](https://www.cnblogs.com/surging-dandelion/p/14381349.html)
 
 原因可能是`docker 加载内核的bridge.ko 驱动异常，导致docker0 网卡无法转发数据包，也就是系统内核的网桥模块bridge.ko 加载失败导致`需要`升级操作系统内核，重新安装docker`
 
@@ -117,6 +117,7 @@ docker build -t local/jenkins .
 ```
 
 如果报错`Temporary failure resolving 'mirrors.aliyun.com'`则
+
 ```shell
 修改网卡配置文件
 vim /etc/resolv.conf
@@ -131,6 +132,7 @@ docker build -t local/jenkins .
 ```
 
 如果再报错`[Warning] IPv4 forwarding is disabled. Networking will not work`则
+
 ```shell
 vim /etc/sysctl.conf
 # 添加这段代码
@@ -145,11 +147,11 @@ docker build -t local/jenkins .
 
 3. 然后**启动镜像**
 
-我们将 Jenkins 用户目录外挂到宿主机内，先新建一个 `/home/jenkins`  目录，并设置权限：
+我们将 Jenkins 用户目录外挂到宿主机内，先新建一个 `/mnt/fe/jenkins`  目录，并设置权限：
 
 ```shell
-mkdir /home/jenkins
-chown -R 1000 /home/jenkins/
+mkdir /mnt/fe/jenkins
+chown -R 1000 /mnt/fe/jenkins/
 ```
 
 接下来我们用镜像创建容器并启动：
@@ -158,7 +160,7 @@ chown -R 1000 /home/jenkins/
 docker run -itd --name jenkins -p 8080:8080 -p 50000:50000 \
 -v /var/run/docker.sock:/var/run/docker.sock \
 -v /usr/bin/docker:/usr/bin/docker \
--v /home/jenkins:/var/jenkins_home \
+-v /mnt/fe/jenkins:/var/jenkins_home \
 --restart always \
 --user root local/jenkins
 ```
@@ -247,16 +249,16 @@ docker pull gitlab/gitlab-ce
 2. 创建 Gitlab 容器
 
 ```shell
-mkdir /home/gitlab #创建Gitlab工作目录
+mkdir /mnt/fe/gitlab #创建Gitlab工作目录
 
 docker run -itd -p 443:443 \
 -p 8899:8899 \
 -p 333:333 \
 --name gitlab \
 --restart always \
--v /home/gitlab/config:/etc/gitlab \
--v /home/gitlab/logs:/var/log/gitlab \
--v /home/gitlab/data:/var/opt/gitlab \
+-v /mnt/fe/gitlab/config:/etc/gitlab \
+-v /mnt/fe/gitlab/logs:/var/log/gitlab \
+-v /mnt/fe/gitlab/data:/var/opt/gitlab \
 gitlab/gitlab-ce
 ```
 
@@ -271,7 +273,7 @@ systemctl reload firewalld
 4. 修改 Gitlab 配置文件
 
 ```shell
-vi /home/gitlab/config/gitlab.rb
+vi /mnt/fe/gitlab/config/gitlab.rb
 # 新增三条配置
 external_url 'http://外部访问域名/地址' # 实测不需要加端口！！！
 # 下面两项走默认即可
@@ -303,7 +305,7 @@ docker restart gitlab
 
 ```shell
 # 前往配置文件进行修改
-vim /home/gitlab/config/gitlab.rb
+vim /mnt/fe/gitlab/config/gitlab.rb
 # 放开下面几个注释
 # unicorn['port'] = 8088 # 为8080时改为8088
 # postgresql['shared_buffers'] = "256MB"
@@ -311,3 +313,101 @@ vim /home/gitlab/config/gitlab.rb
 ```
 
 因为服务器配置过低，耐心等候一段时间。
+
+### Nginx
+
+```shell
+# 安装Nginx
+docker pull nginx
+# 启动容器
+mkdir /mnt/fe/nginx
+docker run -itd -p 7777:80 --name jenkins-nginx \
+  -v /mnt/fe/nginx/html:/usr/share/nginx/html \
+  -v /mnt/fe/nginx/logs:/var/log/nginx \
+  --restart always \
+  nginx
+```
+
+### Jenkins + Gitlab
+
+先使用`create-react-app`在 Gitlab 下新建一个项目
+
+然后配置 Jenkins
+
+- 先配置 git
+
+- 在新增构建配置
+
+```shell
+# 方式一 打包拷贝
+node -v
+npm -v
+npm install -g cnpm --registry=https://registry.npm.taobao.org
+cnpm install
+npm run build
+
+tar -czvf react-cli-demo.tar ./build
+scp ./react-cli-demo.tar root@yourIp:~
+ssh root@yourIp "tar zxvf ~/react-cli-demo.tar && mv build/* /home/nginx/html"
+```
+
+### Nexus
+
+```shell
+# 拉取镜像
+docker pull sonatype/nexus3
+# 新建文件夹 方便存放相关数据
+mkdir /mnt/fe/nexus && chown -R 200 /mnt/fe/nexus
+# 启动容器
+docker run -d -p 8081:8081 -p 8082:8082 \
+--name nexus \
+-v /mnt/fe/nexus:/nexus-data \
+--restart always \
+sonatype/nexus3
+# 登录时密码存放在
+cat /mnt/fe/nexus/admin.password
+```
+
+### Jenkins + Docker
+
+修改 Jenkins 的构建配置
+
+```shell
+# 方式二 使用docker
+set -e
+timestamp=`date '+%Y%m%d%H%M%S'`
+
+node -v
+npm -v
+
+npm install -g cnpm --registry=https://registry.npm.taobao.org
+
+cnpm install
+
+npm run build
+
+# 编译docker镜像
+docker build -t yourIp/fe/nginx-fe-$timestamp .
+
+# 推送docker镜像到制品库
+docker push yourIp/fe/nginx-fe-$timestamp
+
+
+# 暂时在一台机器上操作 `yourIp`为Jenkins+Gitlab所在机器ip
+docker pull yourIp/fe/nginx-fe-$timestamp
+docker stop jenkins-nginx
+docker rm jenkins-nginx
+docker run -p 7777:80 -itd \
+--name jenkins-nginx \
+--restart always \
+yourIp/fe/nginx-fe-$timestamp
+
+# 若为远程 执行命令部署镜像如下配置 `yourIp1`为nginx所在机器ip
+ssh -o StrictHostKeyChecking=no root@yourIp1 "docker pull yourIp/fe/nginx-fe-$timestamp && \
+docker stop jenkins-nginx
+docker rm jenkins-nginx
+docker run -p 7777:80 -itd \
+--name jenkins-nginx \
+--restart always \
+yourIp/fe/nginx-fe-$timestamp"
+```
